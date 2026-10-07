@@ -7,7 +7,7 @@
 [![LightGBM](https://img.shields.io/badge/ML_Engine-LightGBM-2E7D32?style=for-the-badge&logo=scikitlearn&logoColor=white)](https://lightgbm.readthedocs.io/)
 [![FastAPI](https://img.shields.io/badge/Microservice-FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Streamlit](https://img.shields.io/badge/Dashboard-Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://streamlit.io/)
-[![Tests](https://img.shields.io/badge/Tests-35%20Passed-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![Tests](https://img.shields.io/badge/Tests-38%20Passed-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](https://docs.pytest.org/)
 [![CI](https://github.com/CodeJairo/fraud-detection/actions/workflows/ci.yml/badge.svg)](https://github.com/CodeJairo/fraud-detection/actions/workflows/ci.yml)
 
 Plataforma integral de **detección de fraude financiero en streaming, procesamiento analítico lakehouse y Machine Learning supervisado**, construida bajo la **Arquitectura Medallion** (*Bronze, Silver, Gold*).
@@ -90,6 +90,9 @@ uv run python -m src.ml.train
 
 # 5. Generar alertas híbridas y perfiles en Gold
 uv run python -m src.pipeline.gold
+
+# Opcional: Generación Semilla Sintética Reproducible (en 1s sin broker Kafka)
+uv run python -m src.pipeline.seed --transactions 1000
 ```
 
 ### 4. Iniciar Servicios Web
@@ -105,13 +108,13 @@ uv run streamlit run src/ui/app.py
 
 ## 🧪 Pruebas Automatizadas
 
-Suite completa de 35 pruebas unitarias y de integración end-to-end:
+Suite completa de 38 pruebas unitarias y de integración end-to-end:
 
 ```bash
 uv run pytest tests/ -q
 ```
 ```text
-35 passed, 1 warning in 3.17s (100% Passing)
+38 passed, 1 warning in 2.76s (100% Passing)
 ```
 
 ---

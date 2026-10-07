@@ -86,6 +86,17 @@ if isinstance(health_check, dict) and not health_check.get("connection_error") a
     st.sidebar.success("🟢 API Backend: En línea (200 OK)")
     ml_status = health_check.get("medallion_status", {}).get("ml_model_active", False)
     st.sidebar.info(f"🤖 Motor ML: {'LightGBM Activo' if ml_status else 'Solo Reglas'}")
+
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("**Simulador de Pipeline en Vivo:**")
+    if st.sidebar.button("⚡ Inyectar Lote (1,000 eventos)", use_container_width=True, help="Ejecuta en vivo el pipeline Medallion: genera eventos, procesa con Polars y evalúa con LightGBM"):
+        with st.spinner("Procesando pipeline Medallion en vivo..."):
+            res = fetch_data("/pipeline/simulate", method="POST", params={"count": 1000})
+            if res and res.get("status") == "success":
+                st.sidebar.success(f"¡Lote completado en {res.get('execution_time_seconds', 0)}s!")
+                st.rerun()
+            else:
+                st.sidebar.error("Error al procesar el lote en vivo.")
 else:
     st.sidebar.warning("🔴 API Backend: Fuera de línea")
 
@@ -313,7 +324,16 @@ if "Arquitectura" in view_option:
                         "Justificación: Detección de ataques de velocidad y dispersión automática programada mediante bots o scripts."
                     )
         else:
-            st.info("No hay suficientes alertas para generar gráficos estadísticos.")
+            st.info("ℹ️ No hay transacciones procesadas en la Capa Gold actualmente.")
+            st.markdown("Puedes ejecutar el pipeline Medallion completo en vivo con un solo clic:")
+            if st.button("⚡ Inyectar y Procesar Lote Transaccional en Vivo (1,000 eventos)", type="primary"):
+                with st.spinner("Procesando pipeline Medallion (Bronze -> Silver con Polars -> Gold con LightGBM)..."):
+                    res = fetch_data("/pipeline/simulate", method="POST", params={"count": 1000})
+                    if res and res.get("status") == "success":
+                        st.success(f"¡Lote procesado en {res.get('execution_time_seconds', 0)}s! Alertas generadas: {res.get('fraud_alerts_created')}. Recargando...")
+                        st.rerun()
+                    else:
+                        st.error(f"Error al ejecutar simulación: {res}")
     else:
         st.warning("No se pudo obtener el estado de salud de la API.")
 

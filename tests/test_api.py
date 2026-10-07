@@ -184,3 +184,24 @@ def test_api_evaluate_low_risk_transaction():
     assert "APROBADA" in data["recommendation"]
     assert data["decision_color"] == "#00CC96"
 
+
+def test_api_pipeline_simulate(monkeypatch):
+    from unittest.mock import MagicMock
+    mock_seed = MagicMock(return_value={
+        "status": "success",
+        "transactions_generated": 100,
+        "silver_records": 100,
+        "fraud_alerts_created": 15,
+        "user_profiles_created": 40,
+        "execution_time_seconds": 0.25,
+    })
+    monkeypatch.setattr("src.pipeline.seed.run_pipeline_seed", mock_seed)
+
+    response = client.post("/pipeline/simulate?count=100")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+    assert data["transactions_generated"] == 100
+    assert data["fraud_alerts_created"] == 15
+
+

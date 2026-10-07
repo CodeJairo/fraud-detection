@@ -225,3 +225,19 @@ def evaluate_transaction(req: EvaluateTransactionRequest):
         "decision_color": decision_color,
     }
 
+
+@app.post("/pipeline/simulate", tags=["Pipeline Operations"])
+def simulate_pipeline(count: int = Query(500, ge=50, le=5000, description="Cantidad de transacciones sintéticas a procesar")):
+    """
+    Genera y procesa en vivo un lote transaccional a través del pipeline Medallion completo
+    (Bronze -> Silver con Polars -> Gold con LightGBM y reglas contables).
+    Puebla las tablas analíticas y actualiza perfiles y alertas en tiempo real.
+    """
+    try:
+        from src.pipeline.seed import run_pipeline_seed
+        result = run_pipeline_seed(n_transactions=count)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al ejecutar la simulación del pipeline: {str(e)}")
+
+
