@@ -8,6 +8,7 @@
 [![FastAPI](https://img.shields.io/badge/Microservice-FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Streamlit](https://img.shields.io/badge/Dashboard-Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://streamlit.io/)
 [![Tests](https://img.shields.io/badge/Tests-35%20Passed-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![CI](https://github.com/CodeJairo/fraud-detection/actions/workflows/ci.yml/badge.svg)](https://github.com/CodeJairo/fraud-detection/actions/workflows/ci.yml)
 
 Plataforma integral de **detección de fraude financiero en streaming, procesamiento analítico lakehouse y Machine Learning supervisado**, construida bajo la **Arquitectura Medallion** (*Bronze, Silver, Gold*).
 
@@ -61,8 +62,8 @@ flowchart TD
 
 ### 1. Clonar e Instalar Dependencias
 ```bash
-git clone https://github.com/tu-usuario/fintech-fraud-detection.git
-cd fintech-fraud-detection
+git clone https://github.com/CodeJairo/fraud-detection.git
+cd fraud-detection
 uv sync
 ```
 
