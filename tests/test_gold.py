@@ -197,3 +197,62 @@ def test_gold_pipeline_end_to_end(tmp_path):
     for row in df_profiles.to_dicts():
         profile_record = UserRiskProfileRecord(**row)
         assert profile_record.user_risk_level in ("LOW", "MEDIUM", "HIGH")
+
+
+def test_gold_fallback_without_model():
+    df = pl.DataFrame({
+        "type": ["TRANSFER"],
+        "amount": [500000.0],
+        "balance_error_orig": [-500000.0],
+        "oldbalanceDest": [0.0],
+        "newbalanceDest": [0.0],
+        "nameOrig": ["C_TEST"],
+        "step": [1],
+    })
+
+    processor = GoldProcessor(model_path=None)
+    evaluated = processor.evaluate_rules(df.lazy()).collect()
+    df_final = processor.apply_ml_inference(evaluated)
+
+    # Con fallback, risk_score es exactamente rules_score y ml_probability es 0.0
+    assert df_final["risk_score"][0] == 85
+    assert df_final["ml_probability"][0] == 0.0
+    assert df_final["risk_level"][0] == "HIGH"
+
+
+def test_gold_with_ml_model_scoring(monkeypatch):
+    class MockModel:
+        def predict_proba(self, X):
+            # Retorna 90% de probabilidad de fraude para cada fila
+            return np.array([[0.10, 0.90] for _ in range(len(X))])
+
+    import numpy as np
+
+    df = pl.DataFrame({
+        "type": ["TRANSFER"],
+        "amount": [500000.0],
+        "oldbalanceOrg": [500000.0],
+        "newbalanceOrig": [0.0],
+        "oldbalanceDest": [0.0],
+        "newbalanceDest": [0.0],
+        "balance_error_orig": [-500000.0],
+        "balance_error_dest": [0.0],
+        "orig_account_type": ["CLIENT"],
+        "dest_account_type": ["MERCHANT"],
+        "nameOrig": ["C_TEST"],
+        "step": [1],
+    })
+
+    processor = GoldProcessor(model_path=None, rules_weight=0.5, ml_weight=0.5)
+    processor.model = MockModel()
+
+    evaluated = processor.evaluate_rules(df.lazy()).collect()
+    df_final = processor.apply_ml_inference(evaluated)
+
+    # Reglas dan 85 puntos (50 de inconsistencia + 35 de destino cero)
+    # ML da 90% -> 90 puntos
+    # Score híbrido = round(0.5 * 85 + 0.5 * 90) = round(42.5 + 45.0) = 88
+    assert df_final["rules_score"][0] == 85
+    assert df_final["ml_probability"][0] == 0.90
+    assert df_final["risk_score"][0] == 88
+    assert df_final["risk_level"][0] == "HIGH"

@@ -63,6 +63,7 @@ class FraudAlertRecord(BaseModel):
     rules_triggered: str = Field(..., description="Reglas violadas separadas por comas")
     risk_score: int = Field(..., description="Puntaje de riesgo calculado (0-100)")
     risk_level: str = Field(..., description="Nivel de severidad de riesgo (LOW, MEDIUM, HIGH)")
+    ml_probability: float = Field(default=0.0, description="Probabilidad de fraude calculada por el modelo de ML (0.0 - 1.0)")
     isFraud: int = Field(default=0, description="Etiqueta real de fraude para contraste")
     kafka_offset: int = Field(..., description="Offset de trazabilidad en Kafka")
     alert_timestamp: datetime = Field(..., description="Timestamp UTC de generación de la alerta")
@@ -98,6 +99,7 @@ class MedallionStatus(BaseModel):
     silver_files: int = Field(..., description="Archivos Parquet almacenados en la Capa Silver")
     total_fraud_alerts: int = Field(..., description="Total de alertas emitidas en la Capa Gold")
     total_user_profiles: int = Field(..., description="Total de perfiles de clientes en la Capa Gold")
+    ml_model_active: bool = Field(default=False, description="Indica si el modelo de ML está entrenado y activo")
 
 
 class HealthResponse(BaseModel):

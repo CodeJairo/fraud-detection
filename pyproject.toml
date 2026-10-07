@@ -11,6 +11,8 @@ dependencies = [
     "confluent-kafka>=2.16.0",
     "fastapi>=0.142.2",
     "httpx>=0.28.1",
+    "joblib>=1.6.0",
+    "lightgbm>=4.7.0",
     "pandas>=3.0.6",
     "plotly>=7.1.0",
     "polars>=2.0.0",
@@ -19,6 +21,7 @@ dependencies = [
     "pytest>=9.1.1",
     "python-dotenv>=1.2.4",
     "requests>=2.34.2",
+    "scikit-learn>=1.9.1",
     "streamlit>=1.65.0",
     "uvicorn>=0.54.0",
 ]

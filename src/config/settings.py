@@ -37,3 +37,12 @@ GOLD_COMPRESSION = os.getenv("GOLD_COMPRESSION", "snappy")
 GOLD_LARGE_AMOUNT_THRESHOLD = float(os.getenv("GOLD_LARGE_AMOUNT_THRESHOLD", "200000.0"))
 GOLD_BURST_THRESHOLD = int(os.getenv("GOLD_BURST_THRESHOLD", "2"))
 GOLD_ALERT_MIN_SCORE = int(os.getenv("GOLD_ALERT_MIN_SCORE", "35"))
+
+# Configuración del Modelo de Machine Learning
+MODELS_DIR = BASE_DIR / "models"
+MODEL_PATH = Path(os.getenv("MODEL_PATH", str(MODELS_DIR / "fraud_model.joblib")))
+MODEL_METRICS_PATH = Path(os.getenv("MODEL_METRICS_PATH", str(MODELS_DIR / "model_metrics.json")))
+
+# Ponderación del Score Híbrido (Reglas vs. ML)
+GOLD_RULES_WEIGHT = float(os.getenv("GOLD_RULES_WEIGHT", "0.5"))
+GOLD_ML_WEIGHT = float(os.getenv("GOLD_ML_WEIGHT", "0.5"))

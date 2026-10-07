@@ -16,6 +16,7 @@ def test_api_health():
     assert "silver_files" in data["medallion_status"]
     assert "total_fraud_alerts" in data["medallion_status"]
     assert "total_user_profiles" in data["medallion_status"]
+    assert "ml_model_active" in data["medallion_status"]
 
 
 def test_api_alerts_unfiltered():
@@ -29,6 +30,7 @@ def test_api_alerts_unfiltered():
         assert "risk_score" in first
         assert "risk_level" in first
         assert "rules_triggered" in first
+        assert "ml_probability" in first
 
 
 def test_api_alerts_filtered_by_risk_level():
@@ -47,6 +49,15 @@ def test_api_alerts_filtered_by_rule():
     assert isinstance(alerts, list)
     for alert in alerts:
         assert "BALANCE" in alert["rules_triggered"].upper()
+
+
+def test_api_alerts_filtered_by_ml_probability():
+    response = client.get("/alerts?min_ml_prob=0.0&limit=5")
+    assert response.status_code == 200
+    alerts = response.json()
+    assert isinstance(alerts, list)
+    for alert in alerts:
+        assert alert["ml_probability"] >= 0.0
 
 
 def test_api_user_risk_profile_existing():

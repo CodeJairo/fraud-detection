@@ -1,6 +1,6 @@
 """
-Pipeline de la Capa Gold: Métricas de Negocio y Motor de Reglas de Fraude.
-Aplica reglas contables y de comportamiento, genera alertas de fraude y perfiles de riesgo por usuario.
+Pipeline de la Capa Gold: Métricas de Negocio, Inferencia ML y Motor de Reglas de Fraude.
+Aplica reglas contables, inferencia con LightGBM, genera alertas de fraude y perfiles de riesgo por usuario.
 """
 
 import argparse
@@ -18,15 +18,18 @@ from src.config.settings import (
     GOLD_BURST_THRESHOLD,
     GOLD_COMPRESSION,
     GOLD_LARGE_AMOUNT_THRESHOLD,
+    GOLD_ML_WEIGHT,
     GOLD_PROFILES_PATH,
+    GOLD_RULES_WEIGHT,
+    MODEL_PATH,
     SILVER_DATA_PATH,
 )
 
 
 class GoldProcessor:
     """
-    Motor de Detección de Fraude y Agregaciones Analíticas de la Capa Gold.
-    Procesa datasets curados de Silver para emitir alertas y construir perfiles de riesgo.
+    Motor Híbrido de Detección de Fraude y Agregaciones Analíticas de la Capa Gold.
+    Combina reglas deterministas contables con inferencia probabilística de Machine Learning (LightGBM).
     """
 
     def __init__(
@@ -38,6 +41,9 @@ class GoldProcessor:
         large_amount_threshold: float = GOLD_LARGE_AMOUNT_THRESHOLD,
         burst_threshold: int = GOLD_BURST_THRESHOLD,
         min_alert_score: int = GOLD_ALERT_MIN_SCORE,
+        model_path: Optional[Path] = MODEL_PATH,
+        rules_weight: float = GOLD_RULES_WEIGHT,
+        ml_weight: float = GOLD_ML_WEIGHT,
     ):
         self.silver_path = Path(silver_path)
         self.alerts_path = Path(alerts_path)
@@ -46,6 +52,18 @@ class GoldProcessor:
         self.large_amount_threshold = large_amount_threshold
         self.burst_threshold = burst_threshold
         self.min_alert_score = min_alert_score
+        self.model_path = Path(model_path) if model_path else None
+        self.rules_weight = rules_weight
+        self.ml_weight = ml_weight
+
+        # Cargar modelo entrenado si existe
+        self.model = None
+        if self.model_path and self.model_path.exists():
+            try:
+                import joblib
+                self.model = joblib.load(self.model_path)
+            except Exception as e:
+                print(f"⚠️ [GOLD] No se pudo cargar el modelo de ML desde {self.model_path}: {e}")
 
     def scan_silver_data(self, partition_date: Optional[str] = None) -> pl.LazyFrame:
         """Escanea los archivos Parquet de la Capa Silver como un Polars LazyFrame."""
@@ -64,9 +82,9 @@ class GoldProcessor:
     def evaluate_rules(self, lf: pl.LazyFrame) -> pl.LazyFrame:
         """
         Evalúa vectorizadamente las reglas de fraude de negocio:
-        - Regla 1 (Inconsistencia Severa): TRANSFER/CASH_OUT con error de balance en montos elevados.
-        - Regla 2 (Transferencia a Cero): TRANSFER de alto monto a cuenta con balance en cero.
-        - Regla 3 (Ráfaga / Frecuencia): Múltiples operaciones del mismo usuario en la misma hora (step).
+        - Regla 1 (Inconsistencia Severa): TRANSFER/CASH_OUT con error de balance en montos elevados (50 pts).
+        - Regla 2 (Transferencia a Cero): TRANSFER de alto monto a cuenta con balance en cero (35 pts).
+        - Regla 3 (Ráfaga / Frecuencia): Múltiples operaciones del mismo usuario en la misma hora (step) (25 pts).
         """
         lf_with_rules = lf.with_columns([
             # Regla 1: Inconsistencia contable en transacciones relevantes (50 pts)
@@ -90,13 +108,16 @@ class GoldProcessor:
             ).alias("rule_burst_frequency"),
         ])
 
-        # Calcular Score de Riesgo ponderado (0 - 100)
+        # Calcular Score de Reglas puro (0 - 100)
         lf_scored = lf_with_rules.with_columns([
             (
                 pl.col("rule_severe_balance_error").cast(pl.Int32) * 50
                 + pl.col("rule_large_zero_dest").cast(pl.Int32) * 35
                 + pl.col("rule_burst_frequency").cast(pl.Int32) * 25
-            ).alias("risk_score")
+            ).alias("rules_score"),
+            pl.lit(0.0).alias("ml_probability"),
+        ]).with_columns([
+            pl.col("rules_score").alias("risk_score"),
         ])
 
         # Asignar nivel de severidad y concatenar reglas violadas
@@ -116,6 +137,48 @@ class GoldProcessor:
 
         return lf_categorized
 
+    def apply_ml_inference(self, df: pl.DataFrame) -> pl.DataFrame:
+        """
+        Aplica inferencia probabilística usando el modelo LightGBM preentrenado (si está disponible).
+        Calcula el score híbrido combinando las reglas deterministas y la probabilidad de ML:
+            risk_score = round(rules_weight * rules_score + ml_weight * (ml_probability * 100))
+        """
+        if self.model is None or len(df) == 0:
+            return df
+
+        try:
+            from src.ml.train import FEATURE_COLUMNS
+            # Validar que existan todas las features necesarias
+            if not all(col in df.columns for col in FEATURE_COLUMNS):
+                return df
+
+            pdf = df.select(FEATURE_COLUMNS).to_pandas()
+            probs = self.model.predict_proba(pdf)[:, 1]
+            probs_rounded = [round(float(p), 4) for p in probs]
+
+            df_with_ml = df.with_columns(pl.Series("ml_probability", probs_rounded))
+
+            # Calcular score combinado ponderado
+            df_scored = df_with_ml.with_columns([
+                (
+                    self.rules_weight * pl.col("rules_score")
+                    + self.ml_weight * (pl.col("ml_probability") * 100.0)
+                ).round(0).cast(pl.Int32).alias("risk_score")
+            ])
+
+            # Recalcular niveles de riesgo según el nuevo puntaje híbrido
+            df_final = df_scored.with_columns([
+                pl.when(pl.col("risk_score") >= 60).then(pl.lit("HIGH"))
+                  .when(pl.col("risk_score") >= 35).then(pl.lit("MEDIUM"))
+                  .when(pl.col("risk_score") > 0).then(pl.lit("LOW"))
+                  .otherwise(pl.lit("NONE"))
+                  .alias("risk_level")
+            ])
+            return df_final
+        except Exception as e:
+            print(f"⚠️ [GOLD] Error en inferencia de ML: {e}", file=sys.stderr)
+            return df
+
     def extract_fraud_alerts(self, df_evaluated: pl.DataFrame) -> pl.DataFrame:
         """Filtra y estructura las transacciones que superan el umbral de alerta."""
         df_alerts = df_evaluated.filter(pl.col("risk_score") >= self.min_alert_score)
@@ -131,12 +194,12 @@ class GoldProcessor:
             pl.lit(now_utc).alias("alert_timestamp"),
         ])
 
-        # Seleccionar columnas clave de la alerta
+        # Seleccionar columnas clave de la alerta incluyendo probabilidad de ML
         columns_order = [
             "alert_id", "step", "type", "amount", "nameOrig", "nameDest",
             "orig_account_type", "dest_account_type", "rules_triggered",
-            "risk_score", "risk_level", "isFraud", "kafka_offset",
-            "alert_timestamp", "ingestion_date"
+            "rules_score", "ml_probability", "risk_score", "risk_level",
+            "isFraud", "kafka_offset", "alert_timestamp", "ingestion_date"
         ]
         return df_alerts.select([col for col in columns_order if col in df_alerts.columns])
 
@@ -178,13 +241,18 @@ class GoldProcessor:
         """
         Ejecuta el procesamiento de la Capa Gold:
         1. Evalúa reglas de fraude sobre Silver.
-        2. Genera y guarda fraud_alerts.
-        3. Genera y guarda user_risk_profile.
+        2. Aplica inferencia de ML e integra el score híbrido.
+        3. Genera y guarda fraud_alerts.
+        4. Genera y guarda user_risk_profile.
         """
         print(f"🏆 [GOLD] Iniciando procesamiento (fecha: {partition_date or 'Todas las disponibles'})...")
         print(f"📂 Origen Silver: {self.silver_path}")
         print(f"🚨 Destino Alertas: {self.alerts_path}")
         print(f"👤 Destino Perfiles: {self.profiles_path}")
+        if self.model is not None:
+            print(f"🧠 [GOLD] Modelo ML Activo: {self.model_path} (Ponderación: {self.rules_weight*100:.0f}% Reglas / {self.ml_weight*100:.0f}% ML)")
+        else:
+            print("ℹ️ [GOLD] Modelo ML inactivo o no encontrado. Evaluando con reglas puras.")
 
         try:
             lf_silver = self.scan_silver_data(partition_date)
@@ -192,7 +260,7 @@ class GoldProcessor:
             print(f"⚠️ {e}", file=sys.stderr)
             return (0, 0)
 
-        # Evaluar reglas vectorizadamente
+        # 1. Evaluar reglas deterministas
         lf_evaluated = self.evaluate_rules(lf_silver)
         df_evaluated = lf_evaluated.collect()
 
@@ -201,7 +269,10 @@ class GoldProcessor:
             print("⚠️ [GOLD] No se encontraron registros en Silver para procesar.")
             return (0, 0)
 
-        # 1. Alertas de Fraude
+        # 2. Inferencia de ML e integración híbrida
+        df_evaluated = self.apply_ml_inference(df_evaluated)
+
+        # 3. Alertas de Fraude
         df_alerts = self.extract_fraud_alerts(df_evaluated)
         alerts_count = len(df_alerts)
 
@@ -221,7 +292,7 @@ class GoldProcessor:
         else:
             print("ℹ️ [GOLD] No se generaron alertas que superen el umbral.")
 
-        # 2. Perfiles de Riesgo de Usuario
+        # 4. Perfiles de Riesgo de Usuario
         df_profiles = self.build_user_risk_profiles(df_evaluated)
         profiles_count = len(df_profiles)
 
@@ -244,17 +315,23 @@ class GoldProcessor:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Procesador de la Capa Gold (Reglas de Fraude y Perfiles)")
+    parser = argparse.ArgumentParser(description="Procesador de la Capa Gold (Reglas de Fraude, ML y Perfiles)")
     parser.add_argument("--date", type=str, default=None, help="Fecha de ingesta a procesar (YYYY-MM-DD)")
     parser.add_argument("--silver-path", type=str, default=str(SILVER_DATA_PATH), help="Ruta de archivos Silver")
     parser.add_argument("--alerts-path", type=str, default=str(GOLD_ALERTS_PATH), help="Ruta de alertas Gold")
     parser.add_argument("--profiles-path", type=str, default=str(GOLD_PROFILES_PATH), help="Ruta de perfiles Gold")
+    parser.add_argument("--model-path", type=str, default=str(MODEL_PATH), help="Ruta del modelo de ML")
+    parser.add_argument("--rules-weight", type=float, default=GOLD_RULES_WEIGHT, help="Ponderación de reglas (0.0 - 1.0)")
+    parser.add_argument("--ml-weight", type=float, default=GOLD_ML_WEIGHT, help="Ponderación de ML (0.0 - 1.0)")
     args = parser.parse_args()
 
     processor = GoldProcessor(
         silver_path=Path(args.silver_path),
         alerts_path=Path(args.alerts_path),
         profiles_path=Path(args.profiles_path),
+        model_path=Path(args.model_path) if args.model_path else None,
+        rules_weight=args.rules_weight,
+        ml_weight=args.ml_weight,
     )
     processor.process(partition_date=args.date)
 

@@ -83,11 +83,13 @@ if view_option == "📊 Resumen General":
         show_connection_error()
     elif health and "medallion_status" in health:
         m = health["medallion_status"]
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("📦 Archivos Bronze (Crudos)", m["bronze_files"])
-        col2.metric("🧹 Archivos Silver (Limpios)", m["silver_files"])
-        col3.metric("🚨 Alertas de Fraude (Gold)", m["total_fraud_alerts"])
-        col4.metric("👤 Perfiles de Cliente (Gold)", m["total_user_profiles"])
+        col1, col2, col3, col4, col5 = st.columns(5)
+        col1.metric("📦 Archivos Bronze", m["bronze_files"])
+        col2.metric("🧹 Archivos Silver", m["silver_files"])
+        col3.metric("🚨 Alertas de Fraude", m["total_fraud_alerts"])
+        col4.metric("👤 Perfiles Cliente", m["total_user_profiles"])
+        ml_active = m.get("ml_model_active", False)
+        col5.metric("🧠 Modelo ML", "LightGBM Activo" if ml_active else "Solo Reglas")
 
         st.markdown("---")
 
@@ -142,6 +144,27 @@ if view_option == "📊 Resumen General":
             )
             fig_hist.update_layout(margin=dict(l=20, r=20, t=20, b=20))
             st.plotly_chart(fig_hist, use_container_width=True)
+
+            # Matriz Híbrida: Reglas vs. ML si hay probabilidades disponibles
+            if "ml_probability" in df_alerts.columns and df_alerts["ml_probability"].max() > 0:
+                st.markdown("##### Matriz de Decisión Híbrida: Reglas de Negocio vs. Probabilidad de ML")
+                score_col = "rules_score" if "rules_score" in df_alerts.columns else "risk_score"
+                fig_scatter = px.scatter(
+                    df_alerts,
+                    x=score_col,
+                    y="ml_probability",
+                    color="risk_level",
+                    size="amount",
+                    hover_data=["nameOrig", "nameDest", "type", "risk_score"],
+                    labels={
+                        score_col: "Puntaje de Reglas (0-100)",
+                        "ml_probability": "Probabilidad ML (0.0 - 1.0)",
+                        "risk_level": "Nivel de Riesgo",
+                    },
+                    color_discrete_map={"HIGH": "#EF553B", "MEDIUM": "#FFA15A", "LOW": "#636EFA"},
+                )
+                fig_scatter.update_layout(margin=dict(l=20, r=20, t=20, b=20))
+                st.plotly_chart(fig_scatter, use_container_width=True)
         else:
             st.info("No hay suficientes alertas para generar gráficos estadísticos.")
     else:
@@ -153,12 +176,14 @@ if view_option == "📊 Resumen General":
 elif view_option == "🚨 Monitor de Alertas":
     st.subheader("Explorador y Auditoría de Alertas de Fraude")
 
-    f_col1, f_col2, f_col3 = st.columns([1, 1, 1])
+    f_col1, f_col2, f_col3, f_col4 = st.columns([1, 1, 1, 1])
     with f_col1:
         risk_filter = st.selectbox("Filtrar por Nivel de Riesgo:", ["TODOS", "HIGH", "MEDIUM", "LOW"])
     with f_col2:
         rule_filter = st.text_input("Filtrar por Regla (ej. BALANCE, BURST, ZERO):")
     with f_col3:
+        ml_prob_filter = st.slider("Prob. Mínima ML (%):", min_value=0, max_value=100, value=0, step=5)
+    with f_col4:
         limit_filter = st.slider("Límite de Registros:", min_value=10, max_value=500, value=50, step=10)
 
     params: Dict[str, Any] = {"limit": limit_filter}
@@ -166,6 +191,8 @@ elif view_option == "🚨 Monitor de Alertas":
         params["risk_level"] = risk_filter
     if rule_filter.strip():
         params["rule"] = rule_filter.strip()
+    if ml_prob_filter > 0:
+        params["min_ml_prob"] = ml_prob_filter / 100.0
 
     alerts_res = fetch_data("/alerts", params=params)
 
@@ -178,14 +205,16 @@ elif view_option == "🚨 Monitor de Alertas":
 
         cols_display = [
             "alert_id", "step", "type", "amount", "nameOrig", "nameDest",
-            "risk_score", "risk_level", "rules_triggered", "alert_timestamp"
+            "ml_probability", "risk_score", "risk_level", "rules_triggered", "alert_timestamp"
         ]
         available_cols = [c for c in cols_display if c in df.columns]
 
-        # Formatear montos para legibilidad
+        # Formatear montos y probabilidades para legibilidad
         df_display = df[available_cols].copy()
         if "amount" in df_display.columns:
             df_display["amount"] = df_display["amount"].apply(lambda x: f"${x:,.2f}")
+        if "ml_probability" in df_display.columns:
+            df_display["ml_probability"] = df_display["ml_probability"].apply(lambda x: f"{x * 100:.1f}%")
 
         st.dataframe(df_display, use_container_width=True, hide_index=True)
 
