@@ -23,3 +23,7 @@ KAFKA_CONSUMER_GROUP_BRONZE = os.getenv("KAFKA_CONSUMER_GROUP_BRONZE", "bronze-i
 BRONZE_DATA_PATH = Path(os.getenv("BRONZE_DATA_PATH", str(DATA_DIR / "bronze" / "transactions")))
 BRONZE_BATCH_SIZE = int(os.getenv("BRONZE_BATCH_SIZE", "2000"))
 BRONZE_BATCH_TIMEOUT_SEC = float(os.getenv("BRONZE_BATCH_TIMEOUT_SEC", "5.0"))
+
+# Configuración de la Capa Silver
+SILVER_DATA_PATH = Path(os.getenv("SILVER_DATA_PATH", str(DATA_DIR / "silver" / "transactions")))
+SILVER_COMPRESSION = os.getenv("SILVER_COMPRESSION", "snappy")

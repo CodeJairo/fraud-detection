@@ -32,3 +32,15 @@ class BronzeTransactionRecord(TransactionEvent):
     kafka_partition: int = Field(..., description="Partición del broker Kafka de donde provino el evento")
     kafka_offset: int = Field(..., description="Offset único dentro de la partición")
     kafka_timestamp: Optional[int] = Field(None, description="Timestamp de creación provisto por Kafka")
+
+
+class SilverTransactionRecord(BronzeTransactionRecord):
+    """
+    Registro transformado en la Capa Silver.
+    Normalizado, validado y enriquecido con variables contables y de auditoría.
+    """
+    orig_account_type: str = Field(..., description="Tipo de cuenta origen (CLIENT, MERCHANT o UNKNOWN)")
+    dest_account_type: str = Field(..., description="Tipo de cuenta destino (CLIENT, MERCHANT o UNKNOWN)")
+    balance_error_orig: float = Field(..., description="Inconsistencia de saldo origen: (oldbalanceOrg - amount) - newbalanceOrig")
+    balance_error_dest: float = Field(..., description="Inconsistencia de saldo destino: (oldbalanceDest + amount) - newbalanceDest")
+    silver_processed_at: datetime = Field(..., description="Timestamp UTC del procesamiento en la Capa Silver")
