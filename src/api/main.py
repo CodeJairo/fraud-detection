@@ -9,20 +9,35 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Query
 import polars as pl
 
-from src.config.schemas import FraudAlertRecord, HealthResponse, UserRiskProfileRecord
+from src.config.schemas import (
+    EvaluateTransactionRequest,
+    EvaluateTransactionResponse,
+    FraudAlertRecord,
+    HealthResponse,
+    UserRiskProfileRecord,
+)
 from src.config.settings import (
     BRONZE_DATA_PATH,
     GOLD_ALERTS_PATH,
+    GOLD_LARGE_AMOUNT_THRESHOLD,
+    GOLD_ML_WEIGHT,
     GOLD_PROFILES_PATH,
+    GOLD_RULES_WEIGHT,
     MODEL_PATH,
     SILVER_DATA_PATH,
 )
+from src.ml import load_fraud_model
+from src.ml.train import FEATURE_COLUMNS
 
 app = FastAPI(
     title="Fintech Fraud Detection API",
     description="API de alta velocidad para consulta de estado del pipeline Medallion, alertas de fraude y perfiles de riesgo en tiempo real.",
     version="1.0.0",
 )
+
+# Carga en memoria del modelo para inferencia de baja latencia (<5ms)
+ml_model = load_fraud_model(MODEL_PATH)
+
 
 
 def read_latest_parquet(directory: Path) -> pl.DataFrame:
@@ -122,3 +137,91 @@ def get_user_risk_profile(name_orig: str):
         raise HTTPException(status_code=404, detail=f"Usuario '{name_orig}' no encontrado en el sistema.")
 
     return user_data.to_dicts()[0]
+
+
+@app.post("/evaluate", response_model=EvaluateTransactionResponse, tags=["Fraud Engine"])
+def evaluate_transaction(req: EvaluateTransactionRequest):
+    """
+    Evalúa una transacción individual en tiempo real combinando el motor de reglas
+    deterministas de la Capa Gold y el modelo probabilístico LightGBM.
+    Retorna un score combinado (0-100), nivel de severidad y recomendación de compliance.
+    """
+    # 1. Normalizar tipos de cuenta
+    orig_type = "CLIENT" if req.nameOrig.startswith("C") else ("MERCHANT" if req.nameOrig.startswith("M") else "UNKNOWN")
+    dest_type = "CLIENT" if req.nameDest.startswith("C") else ("MERCHANT" if req.nameDest.startswith("M") else "UNKNOWN")
+
+    # 2. Calcular errores contables de balance
+    bal_err_orig = round((req.oldbalanceOrg - req.amount) - req.newbalanceOrig, 4)
+    bal_err_dest = round((req.oldbalanceDest + req.amount) - req.newbalanceDest, 4)
+
+    # 3. Evaluar reglas deterministas
+    r1 = (req.type in ["TRANSFER", "CASH_OUT"]) and (abs(bal_err_orig) > 0.01) and (req.amount >= GOLD_LARGE_AMOUNT_THRESHOLD)
+    r2 = (req.type == "TRANSFER") and (req.amount >= GOLD_LARGE_AMOUNT_THRESHOLD) and (req.oldbalanceDest == 0.0) and (req.newbalanceDest == 0.0)
+
+    rules_triggered_list = []
+    if r1:
+        rules_triggered_list.append("SEVERE_BALANCE_ERROR")
+    if r2:
+        rules_triggered_list.append("LARGE_TRANSFER_ZERO_DEST")
+
+    rules_score = (50 if r1 else 0) + (35 if r2 else 0)
+
+    # 4. Inferencia con LightGBM (si el modelo está cargado)
+    ml_prob = 0.0
+    global ml_model
+    if ml_model is None and MODEL_PATH.exists():
+        ml_model = load_fraud_model(MODEL_PATH)
+
+    if ml_model is not None:
+        try:
+            import pandas as pd
+            row_dict = {
+                "step": [req.step],
+                "amount": [req.amount],
+                "oldbalanceOrg": [req.oldbalanceOrg],
+                "newbalanceOrig": [req.newbalanceOrig],
+                "oldbalanceDest": [req.oldbalanceDest],
+                "newbalanceDest": [req.newbalanceDest],
+                "balance_error_orig": [bal_err_orig],
+                "balance_error_dest": [bal_err_dest],
+                "type": [req.type],
+                "orig_account_type": [orig_type],
+                "dest_account_type": [dest_type],
+            }
+            pdf = pd.DataFrame(row_dict)[FEATURE_COLUMNS]
+            ml_prob = round(float(ml_model.predict_proba(pdf)[0, 1]), 4)
+        except Exception as e:
+            print(f"⚠️ Error en inferencia en tiempo real: {e}")
+            ml_prob = 0.0
+
+    # 5. Score híbrido combinado
+    risk_score = round(GOLD_RULES_WEIGHT * rules_score + GOLD_ML_WEIGHT * (ml_prob * 100.0))
+
+    # 6. Severidad y Recomendación
+    if risk_score >= 60:
+        risk_level = "HIGH"
+        recommendation = "BLOQUEO PREVENTIVO INMEDIATO: Alto riesgo de fraude financiero detectado."
+        decision_color = "#EF553B"
+    elif risk_score >= 35:
+        risk_level = "MEDIUM"
+        recommendation = "REVISIÓN MANUAL REQUERIDA: Solicitar autenticación reforzada o 2FA."
+        decision_color = "#FFA15A"
+    elif risk_score > 0:
+        risk_level = "LOW"
+        recommendation = "OPERACIÓN MONITOREADA: Riesgo leve pero dentro de parámetros tolerables."
+        decision_color = "#636EFA"
+    else:
+        risk_level = "NONE"
+        recommendation = "OPERACIÓN APROBADA: No se detectaron anomalías contables ni sospecha de ML."
+        decision_color = "#00CC96"
+
+    return {
+        "rules_score": rules_score,
+        "ml_probability": ml_prob,
+        "risk_score": risk_score,
+        "risk_level": risk_level,
+        "rules_triggered": ", ".join(rules_triggered_list) if rules_triggered_list else "NINGUNA",
+        "recommendation": recommendation,
+        "decision_color": decision_color,
+    }
+

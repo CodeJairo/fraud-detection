@@ -36,3 +36,14 @@ def test_app_module_imports():
     import src.ui.app as ui_app
     assert hasattr(ui_app, "fetch_data")
     assert hasattr(ui_app, "show_connection_error")
+
+
+def test_fetch_data_post_success():
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"risk_score": 80}
+
+    with patch("src.ui.app.requests.post", return_value=mock_response):
+        data = fetch_data("/evaluate", method="POST", json_data={"amount": 100})
+        assert data == {"risk_score": 80}
+

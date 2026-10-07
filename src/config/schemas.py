@@ -108,3 +108,31 @@ class HealthResponse(BaseModel):
     """
     status: str = Field("healthy", description="Estado de operatividad del servicio")
     medallion_status: MedallionStatus = Field(..., description="Métricas de las capas Medallion")
+
+
+class EvaluateTransactionRequest(BaseModel):
+    """
+    Solicitud para evaluar una transacción en tiempo real a través del motor de reglas y ML.
+    """
+    step: int = Field(default=1, description="Paso o timestamp horario de la transacción (1-744)")
+    type: str = Field(default="TRANSFER", description="Tipo de transacción (TRANSFER, CASH_OUT, PAYMENT, etc.)")
+    amount: float = Field(default=250000.0, description="Monto involucrado en la transacción")
+    nameOrig: str = Field(default="C_DEMO_USER", description="ID de cuenta origen")
+    oldbalanceOrg: float = Field(default=250000.0, description="Saldo origen antes de la transacción")
+    newbalanceOrig: float = Field(default=0.0, description="Saldo origen después de la transacción")
+    nameDest: str = Field(default="M_DESTINATION", description="ID de cuenta destino")
+    oldbalanceDest: float = Field(default=0.0, description="Saldo destino antes de la transacción")
+    newbalanceDest: float = Field(default=0.0, description="Saldo destino después de la transacción")
+
+
+class EvaluateTransactionResponse(BaseModel):
+    """
+    Respuesta de evaluación en tiempo real emitida por el motor híbrido de fraude.
+    """
+    rules_score: int = Field(..., description="Puntos asignados por las reglas deterministas de negocio (0-100)")
+    ml_probability: float = Field(..., description="Probabilidad de fraude calculada por el modelo LightGBM (0.0-1.0)")
+    risk_score: int = Field(..., description="Puntaje combinado final de riesgo (0-100)")
+    risk_level: str = Field(..., description="Nivel de severidad de riesgo (LOW, MEDIUM, HIGH)")
+    rules_triggered: str = Field(..., description="Lista de reglas de negocio violadas")
+    recommendation: str = Field(..., description="Acción de mitigación o cumplimiento recomendada")
+    decision_color: str = Field(..., description="Código de color hexadecimal para visualización en frontend")

@@ -77,3 +77,47 @@ def test_api_user_risk_profile_not_found():
     error = response.json()
     assert "detail" in error
     assert "no encontrado" in error["detail"]
+
+
+def test_api_evaluate_high_risk_transaction():
+    payload = {
+        "step": 1,
+        "type": "TRANSFER",
+        "amount": 350000.0,
+        "nameOrig": "C_FRAUDSTER",
+        "oldbalanceOrg": 350000.0,
+        "newbalanceOrig": 0.0,
+        "nameDest": "M_MULE",
+        "oldbalanceDest": 0.0,
+        "newbalanceDest": 0.0,
+    }
+    response = client.post("/evaluate", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["risk_score"] >= 60
+    assert data["risk_level"] == "HIGH"
+    assert "BLOQUEO" in data["recommendation"]
+    assert "LARGE_TRANSFER_ZERO_DEST" in data["rules_triggered"]
+    assert data["decision_color"] == "#EF553B"
+
+
+def test_api_evaluate_low_risk_transaction():
+    payload = {
+        "step": 1,
+        "type": "PAYMENT",
+        "amount": 50.0,
+        "nameOrig": "C_CLIENT",
+        "oldbalanceOrg": 500.0,
+        "newbalanceOrig": 450.0,
+        "nameDest": "M_STORE",
+        "oldbalanceDest": 0.0,
+        "newbalanceDest": 0.0,
+    }
+    response = client.post("/evaluate", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["risk_score"] == 0
+    assert data["risk_level"] == "NONE"
+    assert "APROBADA" in data["recommendation"]
+    assert data["decision_color"] == "#00CC96"
+
