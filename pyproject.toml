@@ -9,12 +9,15 @@ authors = [
 requires-python = ">=3.14"
 dependencies = [
     "confluent-kafka>=2.16.0",
+    "fastapi>=0.142.2",
+    "httpx>=0.28.1",
     "pandas>=3.0.6",
     "polars>=2.0.0",
     "pyarrow>=25.0.1",
     "pydantic>=2.13.5",
     "pytest>=9.1.1",
     "python-dotenv>=1.2.4",
+    "uvicorn>=0.54.0",
 ]
 
 [tool.uv]

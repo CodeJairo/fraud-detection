@@ -88,3 +88,21 @@ class UserRiskProfileRecord(BaseModel):
     user_risk_level: str = Field(..., description="Clasificación general de riesgo del cliente (LOW, MEDIUM, HIGH)")
     last_activity_step: int = Field(..., description="Último step de actividad registrado")
     profile_updated_at: datetime = Field(..., description="Timestamp UTC de actualización del perfil")
+
+
+class MedallionStatus(BaseModel):
+    """
+    Métricas de volumen y archivos almacenados en la arquitectura Medallion.
+    """
+    bronze_files: int = Field(..., description="Archivos Parquet almacenados en la Capa Bronze")
+    silver_files: int = Field(..., description="Archivos Parquet almacenados en la Capa Silver")
+    total_fraud_alerts: int = Field(..., description="Total de alertas emitidas en la Capa Gold")
+    total_user_profiles: int = Field(..., description="Total de perfiles de clientes en la Capa Gold")
+
+
+class HealthResponse(BaseModel):
+    """
+    Respuesta del health check del sistema y estado del pipeline.
+    """
+    status: str = Field("healthy", description="Estado de operatividad del servicio")
+    medallion_status: MedallionStatus = Field(..., description="Métricas de las capas Medallion")
