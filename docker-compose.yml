@@ -1,0 +1,31 @@
+services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.3.11
+    container_name: redpanda
+    command:
+      - redpanda start
+      # Listener dual: redpanda:9092 para la red interna de Docker, localhost:19092 para clientes locales en el host
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr 0.0.0.0:8082
+      - --advertise-pandaproxy-addr localhost:8082
+      - --schema-registry-addr 0.0.0.0:8081
+      # Modo optimizado para desarrollo local (desactiva validaciones estrictas de hardware y memoria)
+      - --mode dev-container
+      - --smp 1
+      - --default-log-level=info
+    ports:
+      - "19092:19092" # Kafka broker para aplicaciones externas
+      - "8081:8081"   # Schema Registry
+      - "8082:8082"   # Pandaproxy (HTTP REST proxy)
+      - "9644:9644"   # Redpanda Admin API
+
+  console:
+    image: docker.redpanda.com/redpandadata/console:v2.4.3
+    container_name: redpanda-console
+    environment:
+      KAFKA_BROKERS: "redpanda:9092"
+    ports:
+      - "8080:8080" # Panel web interactivo para monitoreo de topics y mensajes
+    depends_on:
+      - redpanda
