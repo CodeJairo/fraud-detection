@@ -1,9 +1,72 @@
+from datetime import datetime, timezone
 from fastapi.testclient import TestClient
+import polars as pl
 import pytest
 
 from src.api.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def mock_gold_data_if_missing(monkeypatch):
+    """
+    Asegura que las pruebas de API sean herméticas e independientes del disco local.
+    Si la Capa Gold no existe en disco (ej. entorno limpio de CI en GitHub Actions),
+    proporciona datasets tipados en memoria para validar la lógica de los endpoints.
+    """
+    from src.api import main as api_main
+    from src.config.settings import GOLD_ALERTS_PATH, GOLD_PROFILES_PATH
+
+    orig_read = api_main.read_latest_parquet
+
+    def mock_read(directory):
+        real_df = orig_read(directory)
+        if not real_df.is_empty():
+            return real_df
+
+        if directory == GOLD_PROFILES_PATH:
+            return pl.DataFrame({
+                "nameOrig": ["C1057507014", "C684230144"],
+                "account_type": ["CLIENT", "CLIENT"],
+                "total_transactions": [5, 2],
+                "total_volume": [500000.0, 100000.0],
+                "avg_transaction_amount": [100000.0, 50000.0],
+                "max_transaction_amount": [300000.0, 80000.0],
+                "transfer_count": [4, 1],
+                "cash_out_count": [1, 1],
+                "total_alerts": [3, 1],
+                "high_risk_alerts": [2, 0],
+                "avg_balance_error": [25000.0, 0.0],
+                "user_risk_level": ["HIGH", "MEDIUM"],
+                "last_activity_step": [1, 1],
+                "profile_updated_at": [datetime.now(timezone.utc), datetime.now(timezone.utc)],
+            })
+
+        if directory == GOLD_ALERTS_PATH:
+            return pl.DataFrame({
+                "alert_id": ["alert-001", "alert-002"],
+                "step": [1, 1],
+                "type": ["TRANSFER", "CASH_OUT"],
+                "amount": [250000.0, 300000.0],
+                "nameOrig": ["C1057507014", "C684230144"],
+                "oldbalanceOrg": [250000.0, 300000.0],
+                "newbalanceOrig": [0.0, 0.0],
+                "nameDest": ["M9999", "M8888"],
+                "orig_account_type": ["CLIENT", "CLIENT"],
+                "dest_account_type": ["MERCHANT", "MERCHANT"],
+                "rules_triggered": ["BALANCE_INCONSISTENCY", "BURST_TRANSACTIONS"],
+                "risk_score": [85, 45],
+                "risk_level": ["HIGH", "MEDIUM"],
+                "ml_probability": [0.95, 0.40],
+                "isFraud": [1, 0],
+                "kafka_offset": [100, 101],
+                "alert_timestamp": [datetime.now(timezone.utc), datetime.now(timezone.utc)],
+            })
+
+        return real_df
+
+    monkeypatch.setattr(api_main, "read_latest_parquet", mock_read)
 
 
 def test_api_health():

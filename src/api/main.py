@@ -130,7 +130,7 @@ def get_user_risk_profile(name_orig: str):
     """
     df = read_latest_parquet(GOLD_PROFILES_PATH)
     if df.is_empty():
-        raise HTTPException(status_code=404, detail="No se encontraron perfiles de usuario en la Capa Gold.")
+        raise HTTPException(status_code=404, detail=f"Usuario '{name_orig}' no encontrado en la Capa Gold.")
 
     user_data = df.filter(pl.col("nameOrig") == name_orig)
     if user_data.is_empty():
